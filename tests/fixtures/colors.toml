@@ -1,0 +1,6 @@
+mode = "dark"
+
+accent = "#abcdef"
+background = "#010203"
+# rgba() values are not plain hex and must be ignored by the parser
+hyprland_active_border = "rgba(26a269ee) rgba(2ec27eee) 45deg"

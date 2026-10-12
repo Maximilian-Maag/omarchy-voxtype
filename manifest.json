@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "Maximilian-Maag.voxtype",
+  "name": "Voxtype",
+  "version": "0.1.0",
+  "author": "Maximilian-Maag",
+  "license": "MIT",
+  "description": "Hyprland integration for the voxtype push-to-talk voice-to-text daemon: theme-aware status, compositor keybindings, and a theme-set hook that repaints the OSD from the applied Omarchy theme.",
+  "kinds": [
+    "cli",
+    "hyprland-module"
+  ],
+  "activation": "auto",
+  "entryPoints": {},
+  "omarchy_meta": {
+    "installScript": "install.sh",
+    "hooks": [
+      "theme-set"
+    ],
+    "features": [
+      "Drives the already-running voxtype.service through its real interface (voxtype record toggle/start/stop/cancel)",
+      "Theme-aware status line — colours read from ~/.local/state/omarchy/current/theme/colors.toml at runtime, no baked-in palette",
+      "Hyprland keybindings for push-to-talk, cancel and status",
+      "theme-set hook (uniquely named voxtype-theme-set) that follows the applied palette",
+      "Degrades to the on-disk state file, never crashes, when the daemon is absent"
+    ]
+  }
+}

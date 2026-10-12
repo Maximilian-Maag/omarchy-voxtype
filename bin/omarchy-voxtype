@@ -1,0 +1,471 @@
+#!/usr/bin/env python3
+"""omarchy-voxtype — integrate the voxtype push-to-talk daemon with Hyprland.
+
+voxtype already runs as a systemd user service (`voxtype.service`) and speaks a real
+control interface, so this plugin re-implements none of it:
+
+  * ``voxtype status [--format json] [--extended]``  — daemon state
+  * ``voxtype record start|stop|toggle|cancel``      — signal the daemon
+  * ``voxtype config get|set|schema``                — configuration
+  * ``voxtype info ...``                             — runtime/install info
+
+What voxtype leaves to the desktop is added here: a status line whose colours follow
+the **applied** Omarchy theme (read from
+``~/.local/state/omarchy/current/theme/colors.toml`` at runtime — no palette is baked
+in), compositor keybindings, and a reload helper for the theme-set hook.
+
+Every entry point degrades gracefully when the daemon is absent (or when running in a
+test harness): state falls back to the on-disk state file, then to ``unknown``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+
+PLUGIN_ID = "Maximilian-Maag.voxtype"
+PLUGIN_NAME = "omarchy-voxtype"
+
+# The applied theme is a COPY at a fixed path, so the theme name is not in the path.
+THEME_COLORS = pathlib.PurePosixPath("omarchy/current/theme/colors.toml")
+
+# States voxtype writes to its state file / reports as its status class.
+KNOWN_STATES = ("idle", "recording", "transcribing", "paused", "error")
+FALLBACK_STATE = "unknown"
+
+# state -> colours.toml key (so a status line is themed)
+STATE_COLOR = {
+    "idle": "green",
+    "recording": "red",
+    "transcribing": "yellow",
+    "paused": "orange",
+    "error": "red",
+    FALLBACK_STATE: "muted",
+}
+
+ICONS = {
+    "idle": "🎙️",
+    "recording": "🔴",
+    "transcribing": "✍️",
+    "paused": "⏸️",
+    "error": "⚠️",
+    FALLBACK_STATE: "🎙️",
+}
+
+
+# ── environment ───────────────────────────────────────────────────────────────
+
+def state_home() -> pathlib.Path:
+    """``$XDG_STATE_HOME`` or ``~/.local/state``."""
+    env = os.environ.get("XDG_STATE_HOME")
+    if env:
+        return pathlib.Path(env)
+    return pathlib.Path.home() / ".local" / "state"
+
+
+def runtime_dir() -> pathlib.Path | None:
+    """The voxtype runtime dir (``$XDG_RUNTIME_DIR/voxtype``), or None."""
+    env = os.environ.get("XDG_RUNTIME_DIR")
+    if not env:
+        return None
+    return pathlib.Path(env) / "voxtype"
+
+
+def state_file_path() -> pathlib.Path | None:
+    """voxtype's live state file (``$XDG_RUNTIME_DIR/voxtype/state``), or None."""
+    rd = runtime_dir()
+    if rd is None:
+        return None
+    return rd / "state"
+
+
+def voxtype_bin() -> str:
+    """The voxtype binary, honouring ``$OMARCHY_VOXTYPE_BIN`` (tests stub it)."""
+    override = os.environ.get("OMARCHY_VOXTYPE_BIN")
+    if override:
+        return override
+    found = shutil.which("voxtype")
+    return found if found else "voxtype"
+
+
+def plugin_state_dir() -> pathlib.Path:
+    return state_home() / PLUGIN_NAME
+
+
+# ── theme (never baked in) ────────────────────────────────────────────────────
+
+def slugify(name: str) -> str:
+    """``"Yellow On Black"`` -> ``"yellow-on-black"`` (matches the theme dir)."""
+    return "-".join(name.strip().lower().split())
+
+
+def parse_colors(text: str) -> dict:
+    """``{key: '#hex'}`` from a colors.toml body; non-colour lines are ignored."""
+    colors: dict = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, raw = line.partition("=")
+        key = key.strip()
+        val = raw.strip().strip('"').strip("'")
+        if re.fullmatch(r"#[0-9A-Fa-f]{3,8}", val):
+            colors[key] = val
+    return colors
+
+
+def load_theme(path=None) -> dict:
+    """The APPLIED theme palette, or ``{}`` when no theme is installed."""
+    p = pathlib.Path(path) if path else state_home() / THEME_COLORS
+    if not p.is_file():
+        return {}
+    return parse_colors(p.read_text(errors="replace"))
+
+
+def active_theme() -> str:
+    """The theme name the theme-set hook last recorded, or ``""``."""
+    p = plugin_state_dir() / "active-theme"
+    if not p.is_file():
+        return ""
+    return p.read_text(errors="replace").strip()
+
+
+# ── state ─────────────────────────────────────────────────────────────────────
+
+def normalize_state(raw: str) -> str:
+    """Map whatever the daemon/state-file hands us to a known state."""
+    value = (raw or "").strip().lower()
+    if value in KNOWN_STATES:
+        return value
+    return FALLBACK_STATE
+
+
+def read_state(path=None) -> str:
+    """The daemon state from voxtype's on-disk state file, else ``unknown``."""
+    p = pathlib.Path(path) if path else state_file_path()
+    if p is None or not p.is_file():
+        return FALLBACK_STATE
+    try:
+        return normalize_state(p.read_text(errors="replace"))
+    except OSError:
+        return FALLBACK_STATE
+
+
+def parse_status_json(text: str) -> dict:
+    """Parse ``voxtype status --format json`` -> ``{state, icon, tooltip, ...}``."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    state = normalize_state(str(data.get("class") or data.get("alt") or ""))
+    out = {
+        "state": state,
+        "icon": str(data.get("text") or ICONS.get(state, "")),
+        "tooltip": str(data.get("tooltip") or ""),
+    }
+    for key in ("model", "device", "backend"):
+        if data.get(key):
+            out[key] = str(data[key])
+    return out
+
+
+def daemon_state(extended=False) -> dict:
+    """Query the daemon; fall back to the state file when it is unknown."""
+    argv = [voxtype_bin(), "status", "--format", "json"]
+    if extended:
+        argv.append("--extended")
+    proc = run_capture(argv)
+    if proc is not None and proc.returncode == 0 and proc.stdout.strip():
+        parsed = parse_status_json(proc.stdout)
+        if parsed:
+            parsed.setdefault("source", "daemon")
+            return parsed
+    state = read_state()
+    return {"state": state, "icon": ICONS.get(state, ""),
+            "tooltip": "voxtype daemon is not reporting", "source": "state-file"}
+
+
+# ── the daemon's control interface (thin, injectable) ─────────────────────────
+
+def record_argv(action: str) -> list:
+    """``voxtype record <action>`` for start/stop/toggle/cancel."""
+    return [voxtype_bin(), "record", action]
+
+
+def systemctl_argv(action: str, unit: str) -> list:
+    return ["systemctl", "--user", action, unit]
+
+
+def run_capture(argv: list):
+    """Run argv, returning a CompletedProcess — or None when the binary is absent."""
+    try:
+        return subprocess.run(argv, capture_output=True, text=True,
+                              timeout=int(os.environ.get("OMARCHY_VOXTYPE_TIMEOUT_S", "30")))
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def do_record(action: str) -> int:
+    proc = run_capture(record_argv(action))
+    if proc is None:
+        print("%s: voxtype not found — nothing to %s" % (PLUGIN_NAME, action),
+              file=sys.stderr)
+        return 1
+    if proc.stderr.strip():
+        sys.stderr.write(proc.stderr)
+    return proc.returncode
+
+
+def do_reload() -> int:
+    """Restart the daemon so a long-lived OSD repaints with the new theme."""
+    proc = run_capture(systemctl_argv("try-restart", "voxtype.service"))
+    if proc is None:
+        print("%s: systemctl not found — cannot reload" % PLUGIN_NAME, file=sys.stderr)
+        return 1
+    if proc.returncode == 0:
+        print("voxtype daemon restarted (OSD will repaint with the applied theme)")
+    return proc.returncode
+
+
+# ── presentation ──────────────────────────────────────────────────────────────
+
+def style(text: str, hexcolor, enabled: bool) -> str:
+    """Wrap `text` in a truecolour ANSI escape for `hexcolor` (no-op when disabled)."""
+    if not enabled or not hexcolor:
+        return text
+    hexcolor = hexcolor.lstrip("#")
+    if len(hexcolor) < 6:
+        return text
+    try:
+        r, g, b = int(hexcolor[0:2], 16), int(hexcolor[2:4], 16), int(hexcolor[4:6], 16)
+    except ValueError:
+        return text
+    return "\033[38;2;%d;%d;%dm%s\033[0m" % (r, g, b, text)
+
+
+def state_color(state: str, colors: dict):
+    key = STATE_COLOR.get(state, "muted")
+    return colors.get(key)
+
+
+def format_status(state: str, colors=None, color=True) -> str:
+    """One themed line: ``<icon> voxtype: <state>``."""
+    colors = colors or {}
+    icon = ICONS.get(state, "")
+    label = style("voxtype: " + state, state_color(state, colors), color)
+    return "%s %s" % (icon, label)
+
+
+# ── keybindings ───────────────────────────────────────────────────────────────
+
+DEFAULT_BINDINGS = {
+    "toggle": "SUPER + CTRL + X",
+    "cancel": "SUPER + CTRL + SHIFT + X",
+    "status": "SUPER + CTRL + ALT + X",
+}
+
+
+def load_config(path=None) -> dict:
+    p = pathlib.Path(path) if path else state_home() / PLUGIN_NAME / "config.json"
+    cfg = {"bindings": dict(DEFAULT_BINDINGS), "reload_on_theme_change": False,
+           "notify": True}
+    if p.is_file():
+        try:
+            data = json.loads(p.read_text())
+        except ValueError:
+            return cfg
+        if isinstance(data, dict):
+            cfg.update({"bindings": {**DEFAULT_BINDINGS, **(data.get("bindings") or {})}})
+            for key in ("reload_on_theme_change", "notify"):
+                if key in data:
+                    cfg[key] = bool(data[key])
+    return cfg
+
+
+def bindings_lua(cfg=None) -> str:
+    """The Hyprland Lua module body for the configured keys."""
+    cfg = cfg or load_config()
+    keys = {**DEFAULT_BINDINGS, **(cfg.get("bindings") or {})}
+    lines = [
+        "-- Hyprland keybindings added by omarchy-voxtype.",
+        "-- Loaded from hyprland.lua by install.sh (require(\"hypr.voxtype-bindings\")).",
+        "",
+    ]
+    lines.append('hl.unbind("%s")' % keys["toggle"])
+    lines.append('o.bind("%s", "Push to talk (voxtype)", "voxtype record toggle")'
+                 % keys["toggle"])
+    lines.append('hl.unbind("%s")' % keys["cancel"])
+    lines.append('o.bind("%s", "voxtype: discard dictation", "voxtype record cancel")'
+                 % keys["cancel"])
+    lines.append('hl.unbind("%s")' % keys["status"])
+    lines.append('o.bind("%s", "voxtype status", "%s status; echo; echo \'Press Enter to close.\'; read")'
+                 % (keys["status"], PLUGIN_NAME))
+    return "\n".join(lines) + "\n"
+
+
+# ── commands ──────────────────────────────────────────────────────────────────
+
+def cmd_status(args) -> int:
+    colors = load_theme(args.colors)
+    if args.state_file:
+        state = read_state(args.state_file)
+        info = {"state": state, "icon": ICONS.get(state, ""),
+                "tooltip": "", "source": "state-file"}
+    else:
+        info = daemon_state(extended=args.extended)
+    if args.json:
+        payload = dict(info)
+        payload["theme"] = active_theme()
+        payload["color"] = state_color(info["state"], colors)
+        print(json.dumps(payload))
+        return 0
+    print(format_status(info["state"], colors, color=not args.no_color))
+    if args.extended and info.get("tooltip"):
+        print(info["tooltip"])
+    return 0
+
+
+def cmd_theme(args) -> int:
+    colors = load_theme(args.colors)
+    if args.json:
+        payload = {"theme": active_theme(), "colors": colors}
+        print(json.dumps(payload))
+        return 0
+    if not colors:
+        print("no colors.toml found — is an Omarchy theme applied?")
+        return 1
+    name = active_theme() or "?"
+    print("theme: %s (%d colours)" % (name, len(colors)))
+    for key, val in sorted(colors.items()):
+        print("  %-22s %s" % (key, style(val, val, not args.no_color)))
+    return 0
+
+
+def cmd_bindings(args) -> int:
+    cfg = load_config(args.config)
+    text = bindings_lua(cfg)
+    if args.write:
+        dest = pathlib.Path(args.write)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(text)
+        print("wrote %s" % dest)
+        return 0
+    if args.json:
+        print(json.dumps(cfg["bindings"]))
+        return 0
+    sys.stdout.write(text)
+    return 0
+
+
+def cmd_info(args) -> int:
+    cfg = load_config(args.config)
+    data = {
+        "plugin": PLUGIN_ID,
+        "voxtype": voxtype_bin(),
+        "daemon": daemon_state()["state"],
+        "state_file": str(state_file_path() or ""),
+        "theme": active_theme(),
+        "bindings": cfg["bindings"],
+        "notify": cfg["notify"],
+    }
+    if args.json:
+        print(json.dumps(data))
+        return 0
+    for key, val in data.items():
+        print("%-12s %s" % (key, val))
+    return 0
+
+
+def cmd_doctor(args) -> int:
+    """Report the pieces this plugin depends on; never fails hard."""
+    problems = []
+    if not shutil.which(voxtype_bin()):
+        problems.append("voxtype binary not found on PATH")
+    rd = runtime_dir()
+    if rd is None or not rd.is_dir():
+        problems.append("voxtype runtime dir not present (daemon not running?)")
+    if not load_theme(args.colors):
+        problems.append("no applied theme colors.toml")
+    status = daemon_state()
+    if status["source"] == "state-file":
+        problems.append("daemon not answering; using the on-disk state file")
+    if args.json:
+        print(json.dumps({"state": status["state"], "source": status["source"],
+                          "problems": problems}))
+        return 0
+    print("state:    %s (%s)" % (status["state"], status["source"]))
+    if problems:
+        for p in problems:
+            print("  ! %s" % p)
+    else:
+        print("  everything looks good")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog=PLUGIN_NAME,
+        description="Hyprland integration for the voxtype push-to-talk daemon")
+    parser.add_argument("--config", default=None, help="path to the user config file")
+    sub = parser.add_subparsers(dest="command")
+
+    p_status = sub.add_parser("status", help="show the daemon state (theme-aware)")
+    p_status.add_argument("--json", action="store_true")
+    p_status.add_argument("--extended", action="store_true")
+    p_status.add_argument("--no-color", dest="no_color", action="store_true")
+    p_status.add_argument("--colors", default=None, help="colors.toml override")
+    p_status.add_argument("--state-file", default=None,
+                          help="read this state file instead of querying the daemon")
+    p_status.set_defaults(func=cmd_status)
+
+    for action in ("toggle", "start", "stop", "cancel"):
+        p = sub.add_parser(action, help="%s dictation" % action)
+        p.set_defaults(func=lambda a, act=action: do_record(act))
+
+    p_reload = sub.add_parser("reload", help="restart the daemon (OSD) for a new theme")
+    p_reload.set_defaults(func=lambda a: do_reload())
+
+    p_theme = sub.add_parser("theme", help="the applied Omarchy palette")
+    p_theme.add_argument("--json", action="store_true")
+    p_theme.add_argument("--no-color", dest="no_color", action="store_true")
+    p_theme.add_argument("--colors", default=None, help="colors.toml override")
+    p_theme.set_defaults(func=cmd_theme)
+
+    p_bindings = sub.add_parser("bindings", help="emit the Hyprland keybinding module")
+    p_bindings.add_argument("--json", action="store_true")
+    p_bindings.add_argument("--write", default=None, help="write the Lua module here")
+    p_bindings.set_defaults(func=cmd_bindings)
+
+    p_info = sub.add_parser("info", help="summarise the integration")
+    p_info.add_argument("--json", action="store_true")
+    p_info.set_defaults(func=cmd_info)
+
+    p_doctor = sub.add_parser("doctor", help="diagnose the integration")
+    p_doctor.add_argument("--json", action="store_true")
+    p_doctor.add_argument("--colors", default=None, help="colors.toml override")
+    p_doctor.set_defaults(func=cmd_doctor)
+
+    return parser
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not getattr(args, "func", None):
+        parser.print_help()
+        return 2
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

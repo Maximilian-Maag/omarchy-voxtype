@@ -1,0 +1,40 @@
+#!/bin/bash
+# omarchy hook: theme-set — make voxtype's OSD follow the APPLIED Omarchy theme.
+#
+# voxtype's OSD, when told `osd.palette = omarchy`, takes its colours from the live
+# Omarchy theme file (~/.local/state/omarchy/current/theme/colors.toml). Nothing is
+# baked in here. But the OSD is a long-lived process: it must be restarted to repaint
+# when the theme changes, and restarting the daemon reloads the transcription model —
+# so the restart is OPT-IN (set OMARCHY_VOXTYPE_RELOAD=1). Either way this hook stamps
+# the active theme so `omarchy-voxtype status` / `theme` can report it.
+#
+# ⚠️ Installed under its BASENAME into ~/.config/omarchy/hooks/theme-set.d/, so this
+# file CANNOT locate its plugin via $(dirname "$BASH_SOURCE")/.. (that resolves to the
+# hooks dir, not the plugin). It self-locates instead.
+set -euo pipefail
+
+THEME=$(echo "${1:-}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+[[ -z "$THEME" ]] && exit 0
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-voxtype"
+mkdir -p "$STATE_DIR"
+printf '%s\n' "$THEME" > "$STATE_DIR/active-theme"
+
+# Repaint is opt-in: a daemon restart reloads the model and is intrusive.
+[[ "${OMARCHY_VOXTYPE_RELOAD:-0}" == "1" ]] || exit 0
+
+PLUGIN_DIR=""
+for d in "${OMARCHY_VOXTYPE_DIR:-}" \
+         "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/Maximilian-Maag.voxtype" \
+         "$HOME/Work/omarchy-voxtype"; do
+  if [[ -n "$d" && -x "$d/bin/omarchy-voxtype" ]]; then
+    PLUGIN_DIR="$d"
+    break
+  fi
+done
+
+if [[ -n "$PLUGIN_DIR" ]]; then
+  "$PLUGIN_DIR/bin/omarchy-voxtype" reload &>/dev/null || true
+else
+  systemctl --user try-restart voxtype.service &>/dev/null || true
+fi
