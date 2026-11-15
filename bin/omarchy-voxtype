@@ -44,10 +44,15 @@ STATE_COLOR = {
     "idle": "green",
     "recording": "red",
     "transcribing": "yellow",
-    "paused": "orange",
+    "paused": "accent",
     "error": "red",
     FALLBACK_STATE: "muted",
 }
+
+# Fallback keys, in order, for a theme that omits a state's mapped key. Every key
+# here (and every value in STATE_COLOR) is present in all shipped Omarchy themes;
+# `orange` was not (4 of 23 lack it), which left `paused` uncoloured there.
+COLOR_FALLBACKS = ("muted", "foreground", "accent")
 
 ICONS = {
     "idle": "🎙️",
@@ -341,7 +346,12 @@ def style(text: str, hexcolor, enabled: bool) -> str:
 
 def state_color(state: str, colors: dict):
     key = STATE_COLOR.get(state, "muted")
-    return colors.get(key)
+    if key in colors:
+        return colors[key]
+    for fallback in COLOR_FALLBACKS:
+        if fallback in colors:
+            return colors[fallback]
+    return next(iter(colors.values()), None)
 
 
 def format_status(state: str, colors=None, color=True) -> str:

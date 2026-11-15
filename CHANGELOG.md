@@ -2,6 +2,17 @@
 
 All notable changes to omarchy-voxtype are documented here.
 
+## [0.1.7] — 2026-11-15
+
+### Fixed
+- **`paused` rendered uncoloured on themes without `orange`** (#7). `STATE_COLOR`
+  mapped `paused` to the palette key `orange`, which 4 of the 23 shipped Omarchy
+  themes do not define, so `style()` found no colour and the paused status line came
+  out plain there. `paused` now maps to `accent` (present in every theme), and
+  `state_color` falls back through `muted`/`foreground`/`accent` — then to any colour
+  present — so no state can resolve to nothing. Unit tests assert every state's key
+  resolves against a palette that has no `orange`.
+
 ## [0.1.6] — 2026-11-15
 
 ### Fixed

@@ -306,6 +306,49 @@ class TestPresentation(EnvCase):
         self.assertIn("voxtype: recording", out)
 
 
+class TestStateColourCoverage(EnvCase):
+    """BUG (#7): 'paused' mapped to the palette key 'orange', which 4 of the 23
+    shipped themes do not define, so paused rendered uncoloured there. Every state's
+    key must resolve against a theme that has no 'orange'."""
+
+    # A palette mimicking a shipped theme that lacks `orange` (e.g. last-horizon).
+    NO_ORANGE = {
+        "accent": "#7aa2f7", "foreground": "#c0caf5", "muted": "#565f89",
+        "red": "#f7768e", "yellow": "#e0af68", "green": "#9ece6a",
+        "blue": "#7aa2f7", "cyan": "#7dcfff",
+    }
+
+    def test_no_state_maps_to_orange(self):
+        self.assertNotIn("orange", set(vox.STATE_COLOR.values()))
+
+    def test_every_state_resolves_against_a_theme_without_orange(self):
+        for state in (*vox.KNOWN_STATES, vox.FALLBACK_STATE):
+            with self.subTest(state=state):
+                colour = vox.state_color(state, self.NO_ORANGE)
+                self.assertIsNotNone(colour, state)
+                self.assertIn("\033[38;2;", vox.style("x", colour, True))
+
+    def test_format_status_themes_paused_without_orange(self):
+        out = vox.format_status("paused", self.NO_ORANGE)
+        self.assertIn("\033[38;2;", out)
+        self.assertIn("voxtype: paused", out)
+
+    def test_missing_key_falls_back_to_muted(self):
+        self.assertEqual(vox.state_color("paused", {"muted": "#111111", "red": "#222222"}),
+                         "#111111")
+
+    def test_missing_key_and_muted_falls_back_to_foreground(self):
+        self.assertEqual(
+            vox.state_color("paused", {"foreground": "#333333", "red": "#222222"}),
+            "#333333")
+
+    def test_missing_key_without_fallbacks_uses_any_present_colour(self):
+        self.assertEqual(vox.state_color("paused", {"red": "#222222"}), "#222222")
+
+    def test_no_colours_at_all_returns_none(self):
+        self.assertIsNone(vox.state_color("paused", {}))
+
+
 class TestConfig(EnvCase):
     def test_defaults(self):
         # an explicit absent path: the built-in defaults
