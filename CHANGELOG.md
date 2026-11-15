@@ -2,6 +2,14 @@
 
 All notable changes to omarchy-voxtype are documented here.
 
+## [0.1.2] — 2026-11-15
+
+### Removed
+- **The dead `slugify()` helper and its unit test** (#4). It was defined and unit-tested
+  but never called anywhere in the CLI. The one place a theme name is normalised now does
+  so inline in `omarchy_theme_name()` (the same `.strip().lower().replace(" ", "-")` form
+  the sibling plugins use), so the standalone helper was removed.
+
 ## [0.1.1] — 2026-11-15
 
 ### Fixed

@@ -45,17 +45,6 @@ class EnvCase(unittest.TestCase):
         os.environ.update(self._env)
 
 
-class TestSlugify(EnvCase):
-    def test_title_case_to_dir_name(self):
-        self.assertEqual(vox.slugify("Yellow On Black"), "yellow-on-black")
-
-    def test_collapses_and_trims_whitespace(self):
-        self.assertEqual(vox.slugify("  Tokyo   Night  "), "tokyo-night")
-
-    def test_already_slug_is_unchanged(self):
-        self.assertEqual(vox.slugify("hackerman"), "hackerman")
-
-
 class TestParseColors(EnvCase):
     def test_reads_hex_values_only(self):
         colors = vox.parse_colors('mode = "dark"\naccent = "#82FB9C"\nred = "#50f872"\n')

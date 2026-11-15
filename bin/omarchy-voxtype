@@ -100,11 +100,6 @@ def plugin_state_dir() -> pathlib.Path:
 
 # ── theme (never baked in) ────────────────────────────────────────────────────
 
-def slugify(name: str) -> str:
-    """``"Yellow On Black"`` -> ``"yellow-on-black"`` (matches the theme dir)."""
-    return "-".join(name.strip().lower().split())
-
-
 def parse_colors(text: str) -> dict:
     """``{key: '#hex'}`` from a colors.toml body; non-colour lines are ignored."""
     colors: dict = {}
