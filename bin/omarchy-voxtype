@@ -279,6 +279,18 @@ def do_reload() -> int:
     return proc.returncode
 
 
+def cmd_reload(args) -> int:
+    """``reload``: restart the daemon (or, with ``--if-enabled``, honour the config).
+
+    A bare ``reload`` always restarts. ``--if-enabled`` — what the theme-set hook calls
+    — restarts only when ``reload_on_theme_change`` (or ``OMARCHY_VOXTYPE_RELOAD=1``)
+    asks for it, so a theme change repaints the OSD only when configured to.
+    """
+    if args.if_enabled and not reload_enabled(load_config(args.config)):
+        return 0
+    return do_reload()
+
+
 # ── presentation ──────────────────────────────────────────────────────────────
 
 def style(text: str, hexcolor, enabled: bool) -> str:
@@ -319,8 +331,7 @@ DEFAULT_BINDINGS = {
 
 def load_config(path=None) -> dict:
     p = pathlib.Path(path) if path else default_config_path()
-    cfg = {"bindings": dict(DEFAULT_BINDINGS), "reload_on_theme_change": False,
-           "notify": True}
+    cfg = {"bindings": dict(DEFAULT_BINDINGS), "reload_on_theme_change": False}
     if p.is_file():
         try:
             data = json.loads(p.read_text())
@@ -328,10 +339,21 @@ def load_config(path=None) -> dict:
             return cfg
         if isinstance(data, dict):
             cfg.update({"bindings": {**DEFAULT_BINDINGS, **(data.get("bindings") or {})}})
-            for key in ("reload_on_theme_change", "notify"):
-                if key in data:
-                    cfg[key] = bool(data[key])
+            if "reload_on_theme_change" in data:
+                cfg["reload_on_theme_change"] = bool(data["reload_on_theme_change"])
     return cfg
+
+
+def reload_enabled(cfg=None) -> bool:
+    """Whether a theme change should restart the daemon (repaint the OSD).
+
+    ``OMARCHY_VOXTYPE_RELOAD=1`` is an explicit environment override; otherwise the
+    ``reload_on_theme_change`` config value decides. Off by default, because a restart
+    reloads the transcription model.
+    """
+    if os.environ.get("OMARCHY_VOXTYPE_RELOAD") == "1":
+        return True
+    return bool((cfg or load_config()).get("reload_on_theme_change"))
 
 
 def bindings_lua(cfg=None) -> str:
@@ -418,7 +440,7 @@ def cmd_info(args) -> int:
         "state_file": str(state_file_path() or ""),
         "theme": active_theme(),
         "bindings": cfg["bindings"],
-        "notify": cfg["notify"],
+        "reload_on_theme_change": cfg["reload_on_theme_change"],
     }
     if args.json:
         print(json.dumps(data))
@@ -476,7 +498,10 @@ def build_parser() -> argparse.ArgumentParser:
         p.set_defaults(func=lambda a, act=action: do_record(act))
 
     p_reload = sub.add_parser("reload", help="restart the daemon (OSD) for a new theme")
-    p_reload.set_defaults(func=lambda a: do_reload())
+    p_reload.add_argument("--if-enabled", dest="if_enabled", action="store_true",
+                          help="only restart when reload_on_theme_change (or "
+                               "OMARCHY_VOXTYPE_RELOAD=1) enables it")
+    p_reload.set_defaults(func=cmd_reload)
 
     p_theme = sub.add_parser("theme", help="the applied Omarchy palette")
     p_theme.add_argument("--json", action="store_true")

@@ -4,6 +4,5 @@
     "cancel": "SUPER + CTRL + SHIFT + X",
     "status": "SUPER + CTRL + ALT + X"
   },
-  "reload_on_theme_change": false,
-  "notify": true
+  "reload_on_theme_change": false
 }

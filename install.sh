@@ -57,4 +57,5 @@ fi
 
 echo ""
 echo "Done. Try:  omarchy-voxtype status   /   omarchy-voxtype toggle"
-echo "The OSD repaints on a theme switch only when OMARCHY_VOXTYPE_RELOAD=1."
+echo "The OSD repaints on a theme switch only when config/voxtype.json sets"
+echo "reload_on_theme_change (or OMARCHY_VOXTYPE_RELOAD=1 overrides it)."

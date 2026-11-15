@@ -196,6 +196,30 @@ class ShippedConfigRegression(unittest.TestCase):
             self.assertEqual(json.loads(r.stdout)["toggle"], "SUPER + SHIPPED")
 
 
+class ConfigKeysAreLiveRegression(unittest.TestCase):
+    """BUG (#1): the config's ``reload_on_theme_change`` was loaded into ``cfg`` but
+    nothing read it — only the hook's ``OMARCHY_VOXTYPE_RELOAD`` env var did anything —
+    and the sibling ``notify`` key was dead too. The config value must control the reload
+    behaviour, and no shipped key may be dead.
+    """
+
+    def test_hook_asks_the_cli_to_reload_only_when_enabled(self):
+        self.assertIn("reload --if-enabled", HOOK.read_text())
+
+    def test_cli_exposes_the_if_enabled_gate(self):
+        text = CLI.read_text()
+        self.assertIn("--if-enabled", text)
+        self.assertIn("def reload_enabled", text)
+
+    def test_shipped_config_has_no_dead_notify_key(self):
+        cfg = json.loads((ROOT / "config" / "voxtype.json").read_text())
+        self.assertNotIn("notify", cfg, "the dead 'notify' key must not be shipped")
+        self.assertIn("reload_on_theme_change", cfg)
+
+    def test_install_docs_name_the_config_key(self):
+        self.assertIn("reload_on_theme_change", (ROOT / "install.sh").read_text())
+
+
 class TestConfigShape(unittest.TestCase):
     def test_config_declares_bindings(self):
         cfg = json.loads((ROOT / "config/voxtype.json").read_text())

@@ -103,5 +103,38 @@ else
   bad "reload fallback: sysctl=$(cat "$SYSCTL_LOG") rc=$rc"
 fi
 
+# 6. config-driven reload: reload_on_theme_change=true (no env) makes the hook restart the
+#    daemon — through the REAL CLI the hook self-locates and invokes (`reload --if-enabled`).
+sandbox 6
+REAL_PLUGIN="$WORK/real-plugin-on"
+mkdir -p "$REAL_PLUGIN/bin" "$REAL_PLUGIN/config"
+cp "$ROOT/bin/omarchy-voxtype" "$REAL_PLUGIN/bin/omarchy-voxtype"
+chmod +x "$REAL_PLUGIN/bin/omarchy-voxtype"
+printf '{"reload_on_theme_change": true}\n' > "$REAL_PLUGIN/config/voxtype.json"
+export OMARCHY_VOXTYPE_DIR="$REAL_PLUGIN"
+bash "$HOOK" "Dracula"
+rc=$?
+if [[ -s $SYSCTL_LOG ]] && (( rc == 0 )); then
+  ok "config reload_on_theme_change=true restarts the daemon"
+else
+  bad "config-enabled reload: sysctl=$(cat "$SYSCTL_LOG" 2>/dev/null) rc=$rc"
+fi
+
+# 7. config-driven reload: reload_on_theme_change=false (no env) leaves the daemon alone.
+sandbox 7
+REAL_PLUGIN="$WORK/real-plugin-off"
+mkdir -p "$REAL_PLUGIN/bin" "$REAL_PLUGIN/config"
+cp "$ROOT/bin/omarchy-voxtype" "$REAL_PLUGIN/bin/omarchy-voxtype"
+chmod +x "$REAL_PLUGIN/bin/omarchy-voxtype"
+printf '{"reload_on_theme_change": false}\n' > "$REAL_PLUGIN/config/voxtype.json"
+export OMARCHY_VOXTYPE_DIR="$REAL_PLUGIN"
+bash "$HOOK" "Dracula"
+rc=$?
+if [[ ! -s $SYSCTL_LOG ]] && (( rc == 0 )); then
+  ok "config reload_on_theme_change=false leaves the daemon alone"
+else
+  bad "config-disabled reload: sysctl=$(cat "$SYSCTL_LOG" 2>/dev/null) rc=$rc"
+fi
+
 echo
 if (( fail == 0 )); then echo "shell: all $pass passed"; exit 0; else echo "shell: $fail failed"; exit 1; fi

@@ -5,8 +5,9 @@
 # Omarchy theme file (~/.local/state/omarchy/current/theme/colors.toml). Nothing is
 # baked in here. But the OSD is a long-lived process: it must be restarted to repaint
 # when the theme changes, and restarting the daemon reloads the transcription model —
-# so the restart is OPT-IN (set OMARCHY_VOXTYPE_RELOAD=1). Either way this hook stamps
-# the active theme so `omarchy-voxtype status` / `theme` can report it.
+# so the restart is OPT-IN, controlled by the plugin's config (reload_on_theme_change)
+# or the OMARCHY_VOXTYPE_RELOAD=1 override. Either way this hook stamps the active theme
+# so `omarchy-voxtype status` / `theme` can report it.
 #
 # ⚠️ Installed under its BASENAME into ~/.config/omarchy/hooks/theme-set.d/, so this
 # file CANNOT locate its plugin via $(dirname "$BASH_SOURCE")/.. (that resolves to the
@@ -20,9 +21,10 @@ STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy-voxtype"
 mkdir -p "$STATE_DIR"
 printf '%s\n' "$THEME" > "$STATE_DIR/active-theme"
 
-# Repaint is opt-in: a daemon restart reloads the model and is intrusive.
-[[ "${OMARCHY_VOXTYPE_RELOAD:-0}" == "1" ]] || exit 0
-
+# Repaint is opt-in: a daemon restart reloads the model and is intrusive. Whether it
+# happens is the plugin config's call (reload_on_theme_change) or the
+# OMARCHY_VOXTYPE_RELOAD=1 override — the CLI owns that decision, so the hook asks it to
+# reload only when enabled. With no plugin to resolve, honour the env override directly.
 PLUGIN_DIR=""
 for d in "${OMARCHY_VOXTYPE_DIR:-}" \
          "${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/plugins/Maximilian-Maag.voxtype" \
@@ -34,7 +36,7 @@ for d in "${OMARCHY_VOXTYPE_DIR:-}" \
 done
 
 if [[ -n "$PLUGIN_DIR" ]]; then
-  "$PLUGIN_DIR/bin/omarchy-voxtype" reload &>/dev/null || true
-else
+  "$PLUGIN_DIR/bin/omarchy-voxtype" reload --if-enabled &>/dev/null || true
+elif [[ "${OMARCHY_VOXTYPE_RELOAD:-0}" == "1" ]]; then
   systemctl --user try-restart voxtype.service &>/dev/null || true
 fi

@@ -252,7 +252,6 @@ class TestConfig(EnvCase):
         cfg = vox.load_config(pathlib.Path("/nonexistent/config.json"))
         self.assertEqual(cfg["bindings"]["toggle"], "SUPER + CTRL + X")
         self.assertFalse(cfg["reload_on_theme_change"])
-        self.assertTrue(cfg["notify"])
 
     def test_default_config_path_is_the_shipped_file(self):
         self.assertEqual(vox.default_config_path(),
@@ -261,16 +260,40 @@ class TestConfig(EnvCase):
 
     def test_file_overrides_bindings_and_merge_partial(self):
         p = pathlib.Path(self.enterContext(_tmp())) / "config.json"
-        p.write_text(json.dumps({"bindings": {"toggle": "SUPER + V"}, "notify": False}))
+        p.write_text(json.dumps({"bindings": {"toggle": "SUPER + V"},
+                                 "reload_on_theme_change": True}))
         cfg = vox.load_config(p)
         self.assertEqual(cfg["bindings"]["toggle"], "SUPER + V")
         self.assertEqual(cfg["bindings"]["cancel"], vox.DEFAULT_BINDINGS["cancel"])
-        self.assertFalse(cfg["notify"])
+        self.assertTrue(cfg["reload_on_theme_change"])
 
     def test_bad_json_falls_back_to_defaults(self):
         p = pathlib.Path(self.enterContext(_tmp())) / "config.json"
         p.write_text("{not json")
         self.assertEqual(vox.load_config(p)["bindings"], dict(vox.DEFAULT_BINDINGS))
+
+
+class TestReloadEnabled(EnvCase):
+    """The config value (or the env override) — not a hardcoded default — decides."""
+
+    def setUp(self):
+        super().setUp()
+        os.environ.pop("OMARCHY_VOXTYPE_RELOAD", None)
+
+    def test_off_by_default(self):
+        self.assertFalse(vox.reload_enabled({}))
+        self.assertFalse(vox.reload_enabled({"reload_on_theme_change": False}))
+
+    def test_config_true_enables(self):
+        self.assertTrue(vox.reload_enabled({"reload_on_theme_change": True}))
+
+    def test_env_override_enables_regardless_of_config(self):
+        os.environ["OMARCHY_VOXTYPE_RELOAD"] = "1"
+        self.assertTrue(vox.reload_enabled({"reload_on_theme_change": False}))
+
+    def test_env_set_to_anything_else_does_not_enable(self):
+        os.environ["OMARCHY_VOXTYPE_RELOAD"] = "0"
+        self.assertFalse(vox.reload_enabled({"reload_on_theme_change": False}))
 
 
 class TestBindingsLua(EnvCase):
@@ -374,11 +397,15 @@ class TestDoRecord(EnvCase):
 
 
 class TestDoReload(EnvCase):
-    def _run(self):
+    def _run(self, argv=("reload",)):
         buf = io.StringIO()
         with unittest.mock.patch("sys.stdout", buf):
-            rc = vox.main(["reload"])
+            rc = vox.main(list(argv))
         return rc, buf.getvalue()
+
+    def setUp(self):
+        super().setUp()
+        os.environ.pop("OMARCHY_VOXTYPE_RELOAD", None)
 
     def test_success_prints_and_returns_zero(self):
         with unittest.mock.patch.object(vox, "run_capture",
@@ -398,6 +425,40 @@ class TestDoReload(EnvCase):
         with unittest.mock.patch.object(vox, "run_capture", return_value=None):
             rc, _ = self._run()
         self.assertEqual(rc, 1)
+
+    def test_bare_reload_always_restarts_even_when_disabled(self):
+        # a manual `reload` is unconditional: it must not consult the config
+        with unittest.mock.patch.object(vox, "run_capture",
+                                        return_value=Completed(0, "", "")) as m:
+            rc, _ = self._run(("reload",))
+        self.assertEqual(rc, 0)
+        self.assertTrue(m.called)
+
+    def test_if_enabled_is_a_noop_when_disabled(self):
+        with unittest.mock.patch.object(vox, "run_capture",
+                                        return_value=Completed(0, "", "")) as m:
+            rc, out = self._run(("reload", "--if-enabled"))
+        self.assertEqual(rc, 0)
+        self.assertFalse(m.called)          # nothing restarted
+        self.assertNotIn("restarted", out)
+
+    def test_if_enabled_restarts_when_the_env_override_is_set(self):
+        os.environ["OMARCHY_VOXTYPE_RELOAD"] = "1"
+        with unittest.mock.patch.object(vox, "run_capture",
+                                        return_value=Completed(0, "", "")) as m:
+            rc, out = self._run(("reload", "--if-enabled"))
+        self.assertEqual(rc, 0)
+        self.assertTrue(m.called)
+        self.assertIn("restarted", out)
+
+    def test_if_enabled_restarts_when_the_config_enables_it(self):
+        cfg = pathlib.Path(self.enterContext(_tmp())) / "config.json"
+        cfg.write_text(json.dumps({"reload_on_theme_change": True}))
+        with unittest.mock.patch.object(vox, "run_capture",
+                                        return_value=Completed(0, "", "")) as m:
+            rc, _ = self._run(("--config", str(cfg), "reload", "--if-enabled"))
+        self.assertEqual(rc, 0)
+        self.assertTrue(m.called)
 
 
 class TestMainDispatch(EnvCase):

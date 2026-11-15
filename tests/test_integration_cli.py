@@ -115,6 +115,27 @@ class CliIntegration(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("--user try-restart voxtype.service", self.syslog.read_text())
 
+    def test_reload_if_enabled_restarts_when_config_enables_it(self):
+        cfg = self.home / "cfg.json"
+        cfg.write_text('{"reload_on_theme_change": true}')
+        r = self.run_cli("--config", str(cfg), "reload", "--if-enabled")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("--user try-restart voxtype.service", self.syslog.read_text())
+
+    def test_reload_if_enabled_is_a_noop_when_config_disables_it(self):
+        cfg = self.home / "cfg.json"
+        cfg.write_text('{"reload_on_theme_change": false}')
+        r = self.run_cli("--config", str(cfg), "reload", "--if-enabled")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(self.syslog.exists() and self.syslog.read_text().strip())
+
+    def test_reload_if_enabled_honours_the_env_override(self):
+        env = dict(self.env, OMARCHY_VOXTYPE_RELOAD="1")
+        r = subprocess.run([sys.executable, str(CLI), "reload", "--if-enabled"],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("--user try-restart voxtype.service", self.syslog.read_text())
+
     def test_theme_reads_applied_colors_toml(self):
         theme = self.home / "state" / "omarchy/current/theme"
         theme.mkdir(parents=True)

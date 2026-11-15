@@ -85,8 +85,9 @@ Or from a clone: `bash install.sh`.
 `$(dirname "$BASH_SOURCE")/..` (that is the hooks dir), so it **self-locates** over
 `$OMARCHY_VOXTYPE_DIR`, the installed plugins dir, and a dev checkout.
 
-Repainting the OSD restarts the daemon (which reloads the transcription model), so it
-is opt-in: `OMARCHY_VOXTYPE_RELOAD=1`.
+Repainting the OSD restarts the daemon (which reloads the transcription model), so it is
+opt-in: set `reload_on_theme_change: true` in `config/voxtype.json`, or export
+`OMARCHY_VOXTYPE_RELOAD=1` to override for a single session.
 
 ## Development
 

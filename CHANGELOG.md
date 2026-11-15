@@ -2,6 +2,20 @@
 
 All notable changes to omarchy-voxtype are documented here.
 
+## [0.1.4] — 2026-11-15
+
+### Fixed
+- **The config's `reload_on_theme_change` did nothing** (#1). `bin/omarchy-voxtype` loaded
+  the key but nothing read it — only the theme-set hook's `OMARCHY_VOXTYPE_RELOAD`
+  environment variable had any effect — and the sibling `notify` key was likewise only
+  echoed. `reload_on_theme_change` now actually controls the reload: `reload --if-enabled`
+  (what the hook calls) restarts the daemon only when the config enables it or
+  `OMARCHY_VOXTYPE_RELOAD=1` overrides; a bare `reload` still always restarts, so the
+  manual command is unchanged. The `notify` key had no consumer and could not be wired
+  without inventing a notification subsystem, so it was removed. Unit, integration and
+  shell tests pin the config-driven reload end-to-end: a hook run with
+  `reload_on_theme_change: true` restarts the daemon, with `false` it leaves it alone.
+
 ## [0.1.3] — 2026-11-15
 
 ### Fixed
