@@ -329,6 +329,26 @@ DEFAULT_BINDINGS = {
 }
 
 
+def coerce_bool(value) -> bool:
+    """Strict truthiness for a config flag.
+
+    Accepts real booleans and the strings true/false/yes/no/1/0 (case- and
+    space-insensitive); anything else is the safe default — off. Plain ``bool()``
+    would treat the non-empty string ``"false"`` as True and silently *enable* the
+    daemon restart that ``reload_enabled`` gates.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        v = value.strip().lower()
+        if v in ("true", "yes", "1"):
+            return True
+        return False
+    if isinstance(value, int):
+        return value == 1
+    return False
+
+
 def load_config(path=None) -> dict:
     p = pathlib.Path(path) if path else default_config_path()
     cfg = {"bindings": dict(DEFAULT_BINDINGS), "reload_on_theme_change": False}
@@ -340,7 +360,7 @@ def load_config(path=None) -> dict:
         if isinstance(data, dict):
             cfg.update({"bindings": {**DEFAULT_BINDINGS, **(data.get("bindings") or {})}})
             if "reload_on_theme_change" in data:
-                cfg["reload_on_theme_change"] = bool(data["reload_on_theme_change"])
+                cfg["reload_on_theme_change"] = coerce_bool(data["reload_on_theme_change"])
     return cfg
 
 
@@ -353,7 +373,7 @@ def reload_enabled(cfg=None) -> bool:
     """
     if os.environ.get("OMARCHY_VOXTYPE_RELOAD") == "1":
         return True
-    return bool((cfg or load_config()).get("reload_on_theme_change"))
+    return coerce_bool((cfg or load_config()).get("reload_on_theme_change"))
 
 
 def bindings_lua(cfg=None) -> str:

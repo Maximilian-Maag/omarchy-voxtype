@@ -2,6 +2,16 @@
 
 All notable changes to omarchy-voxtype are documented here.
 
+## [0.1.5] — 2026-11-15
+
+### Fixed
+- **A quoted `reload_on_theme_change` could turn the restart ON** (#5). The flag was
+  coerced with `bool()`, so any non-empty string — `"false"`, `"no"`, `"0"` — was
+  truthy and *enabled* the theme-change restart that `reload_enabled()` gates, the
+  opposite of intent. It is now coerced strictly: real booleans and the strings
+  `true/false/yes/no/1/0` (case- and space-insensitive) are honoured and anything
+  else falls back to the safe default, off. Unit tests pin every variant.
+
 ## [0.1.4] — 2026-11-15
 
 ### Fixed

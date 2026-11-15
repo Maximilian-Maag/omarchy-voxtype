@@ -273,6 +273,54 @@ class TestConfig(EnvCase):
         self.assertEqual(vox.load_config(p)["bindings"], dict(vox.DEFAULT_BINDINGS))
 
 
+class TestCoerceBool(EnvCase):
+    """BUG (#5): the flag was coerced with bool(), so the STRING "false" enabled it."""
+
+    def test_real_booleans_pass_through(self):
+        self.assertTrue(vox.coerce_bool(True))
+        self.assertFalse(vox.coerce_bool(False))
+
+    def test_string_true_variants(self):
+        for s in ("true", "TRUE", "True", "yes", "YES", "1", " true "):
+            self.assertTrue(vox.coerce_bool(s), repr(s))
+
+    def test_string_false_variants(self):
+        for s in ("false", "FALSE", "False", "no", "No", "0", " false "):
+            self.assertFalse(vox.coerce_bool(s), repr(s))
+
+    def test_json_integer_one_is_true_zero_is_false(self):
+        self.assertTrue(vox.coerce_bool(1))
+        self.assertFalse(vox.coerce_bool(0))
+
+    def test_anything_else_is_the_safe_default_off(self):
+        for v in (None, "", "maybe", "on", "off", "2", [], {}, 2, 0.5):
+            self.assertFalse(vox.coerce_bool(v), repr(v))
+
+
+class TestReloadBoolCoercion(EnvCase):
+    """A config file whose reload flag is a quoted/loose value must not flip."""
+    def _cfg(self, value):
+        p = pathlib.Path(self.enterContext(_tmp())) / "config.json"
+        p.write_text(json.dumps({"reload_on_theme_change": value}))
+        return vox.load_config(p)
+
+    def test_string_false_variants_do_not_enable_the_restart(self):
+        for value in ("false", "False", "no", "0", " no "):
+            cfg = self._cfg(value)
+            self.assertFalse(cfg["reload_on_theme_change"], repr(value))
+            self.assertFalse(vox.reload_enabled(cfg), repr(value))
+
+    def test_string_true_variants_do_enable_the_restart(self):
+        for value in ("true", "yes", "1"):
+            cfg = self._cfg(value)
+            self.assertTrue(cfg["reload_on_theme_change"], repr(value))
+            self.assertTrue(vox.reload_enabled(cfg), repr(value))
+
+    def test_real_boolean_still_works(self):
+        self.assertTrue(self._cfg(True)["reload_on_theme_change"])
+        self.assertFalse(self._cfg(False)["reload_on_theme_change"])
+
+
 class TestReloadEnabled(EnvCase):
     """The config value (or the env override) — not a hardcoded default — decides."""
 
