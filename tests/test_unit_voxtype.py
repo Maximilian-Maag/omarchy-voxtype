@@ -90,17 +90,54 @@ class TestLoadTheme(EnvCase):
 
 
 class TestActiveTheme(EnvCase):
-    def test_records_what_the_hook_wrote(self):
+    def _state(self):
         tmp = pathlib.Path(self.enterContext(_tmp()))
         os.environ["XDG_STATE_HOME"] = str(tmp)
+        return tmp
+
+    def _stamp(self, tmp, name):
         d = tmp / "omarchy-voxtype"
-        d.mkdir(parents=True)
-        (d / "active-theme").write_text("tokyo-night\n")
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "active-theme").write_text(name + "\n")
+
+    def _live(self, tmp, name):
+        cur = tmp / "omarchy" / "current"
+        cur.mkdir(parents=True, exist_ok=True)
+        (cur / "theme.name").write_text(name + "\n")
+
+    def test_records_what_the_hook_wrote(self):
+        tmp = self._state()
+        self._stamp(tmp, "tokyo-night")
         self.assertEqual(vox.active_theme(), "tokyo-night")
 
     def test_absent_is_empty(self):
         os.environ["XDG_STATE_HOME"] = "/nonexistent"
         self.assertEqual(vox.active_theme(), "")
+
+    def test_live_theme_name_wins_over_a_stale_stamp(self):
+        tmp = self._state()
+        self._stamp(tmp, "tokyo-night")     # stale: written by a hook that did not rerun
+        self._live(tmp, "hackerman")        # Omarchy's authoritative, live record
+        self.assertEqual(vox.active_theme(), "hackerman")
+
+    def test_live_theme_name_is_normalised_to_the_directory_slug(self):
+        tmp = self._state()
+        self._live(tmp, "Yellow On Black")
+        self.assertEqual(vox.active_theme(), "yellow-on-black")
+
+    def test_live_and_stamp_agree(self):
+        tmp = self._state()
+        self._stamp(tmp, "gruvbox")
+        self._live(tmp, "gruvbox")
+        self.assertEqual(vox.active_theme(), "gruvbox")
+
+    def test_omarchy_theme_name_absent_is_empty(self):
+        os.environ["XDG_STATE_HOME"] = "/nonexistent"
+        self.assertEqual(vox.omarchy_theme_name(), "")
+
+    def test_recorded_theme_name_absent_is_empty(self):
+        os.environ["XDG_STATE_HOME"] = "/nonexistent"
+        self.assertEqual(vox.recorded_theme_name(), "")
 
 
 class TestEnvironment(EnvCase):

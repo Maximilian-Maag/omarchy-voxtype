@@ -129,6 +129,35 @@ class TestPolicyDeclaresEveryKind(unittest.TestCase):
         self.assertGreaterEqual(cfg["tests"]["min_kill_rate"], 0.8)
 
 
+class TestThemeNamePrecedence(unittest.TestCase):
+    """BUG (#3): ``active_theme()`` read the hook's cached stamp as truth. Omarchy's
+    live ``<state>/omarchy/current/theme.name`` is authoritative (rewritten on every
+    theme change, no dependency on this plugin's hook) and must win over a stale stamp.
+    """
+
+    def test_live_theme_name_wins_over_a_stale_stamp(self):
+        import os
+        import subprocess
+        import sys
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            state = pathlib.Path(d)
+            (state / "omarchy-voxtype").mkdir(parents=True)
+            (state / "omarchy-voxtype" / "active-theme").write_text("tokyo-night\n")   # stale
+            cur = state / "omarchy" / "current"
+            cur.mkdir(parents=True)
+            (cur / "theme.name").write_text("hackerman\n")                             # live
+            env = dict(os.environ, XDG_STATE_HOME=str(state))
+            r = subprocess.run([sys.executable, str(CLI), "theme", "--json"],
+                               capture_output=True, text=True, env=env)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(json.loads(r.stdout)["theme"], "hackerman")
+
+    def test_the_cli_reads_omarchy_live_theme_name(self):
+        self.assertIn('"theme.name"', CLI.read_text())
+
+
 class TestConfigShape(unittest.TestCase):
     def test_config_declares_bindings(self):
         cfg = json.loads((ROOT / "config/voxtype.json").read_text())

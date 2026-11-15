@@ -44,8 +44,9 @@ omarchy-voxtype reload            # restart the daemon so the OSD repaints
 The status line is coloured from the **applied** theme:
 `~/.local/state/omarchy/current/theme/colors.toml`. That path is a *copy* under a
 fixed `theme` directory, so the theme name is not in the path — `omarchy-voxtype
-theme` reports the name the theme-set hook last recorded. No palette is hardcoded, so
-all stock themes (and your own) work.
+theme` reports the name from Omarchy's live `~/.local/state/omarchy/current/theme.name`,
+falling back to the theme-set hook's stamp. No palette is hardcoded, so all stock
+themes (and your own) work.
 
 ## Keybindings
 

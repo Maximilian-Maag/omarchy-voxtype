@@ -130,12 +130,43 @@ def load_theme(path=None) -> dict:
     return parse_colors(p.read_text(errors="replace"))
 
 
-def active_theme() -> str:
-    """The theme name the theme-set hook last recorded, or ``""``."""
+def omarchy_theme_name() -> str:
+    """Omarchy's own record of the applied theme's name, or ``"``.
+
+    ``omarchy-theme-set`` rewrites ``<state>/omarchy/current/theme.name`` on every
+    theme change, independently of this plugin's hook, so it is authoritative and
+    always current. The value is normalised to the lower-dashed form a theme
+    directory uses.
+    """
+    p = state_home() / "omarchy" / "current" / "theme.name"
+    if not p.is_file():
+        return ""
+    try:
+        raw = p.read_text(errors="replace")
+    except OSError:
+        return ""
+    return raw.strip().lower().replace(" ", "-")
+
+
+def recorded_theme_name() -> str:
+    """The theme name the theme-set hook last recorded, or ``"``."""
     p = plugin_state_dir() / "active-theme"
     if not p.is_file():
         return ""
-    return p.read_text(errors="replace").strip()
+    try:
+        return p.read_text(errors="replace").strip()
+    except OSError:
+        return ""
+
+
+def active_theme() -> str:
+    """The applied theme's name, most-authoritative source first.
+
+    Omarchy's live ``current/theme.name`` wins; the theme-set hook's stamp is only a
+    fallback. A stamp left stale by a hook that did not run can therefore never be
+    reported as truth.
+    """
+    return omarchy_theme_name() or recorded_theme_name()
 
 
 # ── state ─────────────────────────────────────────────────────────────────────

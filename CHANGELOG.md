@@ -2,6 +2,17 @@
 
 All notable changes to omarchy-voxtype are documented here.
 
+## [0.1.1] — 2026-11-15
+
+### Fixed
+- **The applied theme name was read from a stale hook stamp** (#3). `active_theme()`
+  trusted `<state>/omarchy-voxtype/active-theme` — written only by the theme-set hook —
+  instead of Omarchy's authoritative `<state>/omarchy/current/theme.name`, which is
+  rewritten on every theme change with no dependency on this hook. A stamp left stale by
+  a hook that did not run reported the wrong name as truth. Resolution is now
+  `current/theme.name` → the hook stamp. Unit + regression tests pin that the live name
+  wins over a stale stamp.
+
 ## [0.1.0] — 2026-10-12
 
 ### Added
