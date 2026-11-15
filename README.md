@@ -56,8 +56,10 @@ themes (and your own) work.
 | `Super+Ctrl+Shift+X` | Discard the current dictation |
 | `Super+Ctrl+Alt+X` | Show the theme-aware status |
 
-Keys are configurable in `config/voxtype.json` (copied to
-`~/.local/state/omarchy-voxtype/config.json` on install).
+Keys are configurable in `config/voxtype.json`, which the CLI consumes **in place**:
+it reads the config shipped beside it (resolved through the installed symlink), the way
+this repo's other plugins read `<plugin>/config/<name>.json`. `--config PATH` overrides
+the path; `reload_on_theme_change` and the `bindings` map are the shipped keys.
 
 ## Requirements
 

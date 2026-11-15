@@ -248,11 +248,16 @@ class TestPresentation(EnvCase):
 
 class TestConfig(EnvCase):
     def test_defaults(self):
-        os.environ["XDG_STATE_HOME"] = "/nonexistent"
-        cfg = vox.load_config()
+        # an explicit absent path: the built-in defaults
+        cfg = vox.load_config(pathlib.Path("/nonexistent/config.json"))
         self.assertEqual(cfg["bindings"]["toggle"], "SUPER + CTRL + X")
         self.assertFalse(cfg["reload_on_theme_change"])
         self.assertTrue(cfg["notify"])
+
+    def test_default_config_path_is_the_shipped_file(self):
+        self.assertEqual(vox.default_config_path(),
+                         ROOT / "config" / "voxtype.json")
+        self.assertNotIn("omarchy-voxtype/config.json", str(vox.default_config_path()))
 
     def test_file_overrides_bindings_and_merge_partial(self):
         p = pathlib.Path(self.enterContext(_tmp())) / "config.json"

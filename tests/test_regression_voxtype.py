@@ -158,6 +158,44 @@ class TestThemeNamePrecedence(unittest.TestCase):
         self.assertIn('"theme.name"', CLI.read_text())
 
 
+class ShippedConfigRegression(unittest.TestCase):
+    """BUG (#2): the repo shipped ``config/voxtype.json``, but the CLI read
+    ``~/.local/state/omarchy-voxtype/config.json`` — a path install.sh never creates — so
+    the shipped config was dead and README claimed install copied a file nothing wrote.
+    The CLI must consume the config shipped beside it (resolved through the installed
+    symlink), the way this repo's other plugins read ``<plugin>/config/<name>.json``.
+    """
+
+    def test_default_config_is_the_shipped_file_not_a_state_path(self):
+        text = CLI.read_text()
+        self.assertIn('plugin_dir() / "config" / "voxtype.json"', text)
+
+    def test_readme_no_longer_claims_install_copies_the_config(self):
+        readme = (ROOT / "README.md").read_text()
+        self.assertNotIn("copied to", readme)
+
+    def test_cli_consumes_the_config_shipped_beside_it(self):
+        import shutil
+        import subprocess
+        import sys
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            plug = pathlib.Path(d) / "plugin"
+            (plug / "bin").mkdir(parents=True)
+            (plug / "config").mkdir()
+            shutil.copy(CLI, plug / "bin" / "omarchy-voxtype")
+            # a binding that differs from the built-in default, so reading the shipped
+            # file is observable in the emitted module
+            (plug / "config" / "voxtype.json").write_text(
+                json.dumps({"bindings": {"toggle": "SUPER + SHIPPED"}}))
+            r = subprocess.run([sys.executable, str(plug / "bin" / "omarchy-voxtype"),
+                                "bindings", "--json"],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(json.loads(r.stdout)["toggle"], "SUPER + SHIPPED")
+
+
 class TestConfigShape(unittest.TestCase):
     def test_config_declares_bindings(self):
         cfg = json.loads((ROOT / "config/voxtype.json").read_text())

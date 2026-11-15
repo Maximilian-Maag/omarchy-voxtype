@@ -98,6 +98,22 @@ def plugin_state_dir() -> pathlib.Path:
     return state_home() / PLUGIN_NAME
 
 
+def plugin_dir() -> pathlib.Path:
+    """This plugin's checkout — the installed CLI is a symlink back into it."""
+    return pathlib.Path(__file__).resolve().parent.parent
+
+
+def default_config_path() -> pathlib.Path:
+    """The config shipped with the plugin, consumed in place.
+
+    The repo ships ``config/voxtype.json``; reading it directly (resolved through the
+    installed symlink) is how this repo's other plugins consume their
+    ``config/<name>.json``, so the shipped config is never orphaned behind a
+    ``~/.local/state`` copy nothing installs.
+    """
+    return plugin_dir() / "config" / "voxtype.json"
+
+
 # ── theme (never baked in) ────────────────────────────────────────────────────
 
 def parse_colors(text: str) -> dict:
@@ -302,7 +318,7 @@ DEFAULT_BINDINGS = {
 
 
 def load_config(path=None) -> dict:
-    p = pathlib.Path(path) if path else state_home() / PLUGIN_NAME / "config.json"
+    p = pathlib.Path(path) if path else default_config_path()
     cfg = {"bindings": dict(DEFAULT_BINDINGS), "reload_on_theme_change": False,
            "notify": True}
     if p.is_file():
@@ -442,7 +458,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=PLUGIN_NAME,
         description="Hyprland integration for the voxtype push-to-talk daemon")
-    parser.add_argument("--config", default=None, help="path to the user config file")
+    parser.add_argument("--config", default=None,
+                        help="plugin config (default: the shipped config/voxtype.json)")
     sub = parser.add_subparsers(dest="command")
 
     p_status = sub.add_parser("status", help="show the daemon state (theme-aware)")

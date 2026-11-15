@@ -2,6 +2,17 @@
 
 All notable changes to omarchy-voxtype are documented here.
 
+## [0.1.3] — 2026-11-15
+
+### Fixed
+- **The shipped `config/voxtype.json` had no reader** (#2). The CLI defaulted `--config`
+  to `~/.local/state/omarchy-voxtype/config.json` — a path `install.sh` never creates — so
+  the shipped config was dead, while the README claimed install copied a file nothing
+  wrote. The CLI now reads the config shipped beside it (`<plugin>/config/voxtype.json`,
+  resolved through the installed symlink), matching how this repo's other plugins consume
+  their `config/<name>.json`. A regression test runs a relocated copy of the CLI against
+  its own `config/voxtype.json` and asserts the shipped binding is what gets emitted.
+
 ## [0.1.2] — 2026-11-15
 
 ### Removed
