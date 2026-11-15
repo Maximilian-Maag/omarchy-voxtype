@@ -76,6 +76,12 @@ bash ~/.config/omarchy/plugins/Maximilian-Maag.voxtype/install.sh
 
 Or from a clone: `bash install.sh`.
 
+To remove what the install added — and only that: `bash install.sh --uninstall`
+(also `bash ~/.config/omarchy/plugins/Maximilian-Maag.voxtype/install.sh --uninstall`).
+It takes back the `/usr/local/bin` symlink, the bindings fragment, the require
+line and the theme-set hook, leaves your own config byte-identical, and never
+touches voxtype's config or any package.
+
 ## The theme-set hook, and its two traps
 
 `install.sh` runs `omarchy hook install theme-set hooks/voxtype-theme-set`.
