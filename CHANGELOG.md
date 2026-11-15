@@ -2,6 +2,18 @@
 
 All notable changes to omarchy-voxtype are documented here.
 
+## [0.1.6] — 2026-11-15
+
+### Fixed
+- **The colour parser and the renderer disagreed on hex lengths** (#6). `parse_colors`
+  accepted any 3-8 digit hex while `style()` dropped anything shorter than 6 chars and
+  truncated longer values (silently discarding alpha), so a colour the parser reported as
+  present could render unthemed. Both now share `normalize_hex`: `#rgb`/`#rgba` expand to
+  six digits and any alpha channel is dropped, so exactly the colours the parser accepts
+  are the ones the renderer can draw (`#abc` -> `#aabbcc`, `#abcd` -> `#aabbcc`,
+  `#0f0f0f00` -> `#0f0f0f`). Unit tests cover each form and assert parser/renderer
+  agreement.
+
 ## [0.1.5] — 2026-11-15
 
 ### Fixed

@@ -55,10 +55,60 @@ class TestParseColors(EnvCase):
         self.assertEqual(vox.parse_colors(text), {})
 
     def test_strips_quotes(self):
-        self.assertEqual(vox.parse_colors("accent = '#abc'\n"), {"accent": "#abc"})
+        self.assertEqual(vox.parse_colors("accent = '#abcdef'\n"), {"accent": "#abcdef"})
 
     def test_empty_text(self):
         self.assertEqual(vox.parse_colors(""), {})
+
+
+class TestNormalizeHex(EnvCase):
+    def test_six_digit_is_unchanged(self):
+        self.assertEqual(vox.normalize_hex("#0f0f0f"), "#0f0f0f")
+
+    def test_three_digit_expands_to_six(self):
+        self.assertEqual(vox.normalize_hex("#abc"), "#aabbcc")
+
+    def test_four_digit_expands_and_drops_alpha(self):
+        self.assertEqual(vox.normalize_hex("#abcd"), "#aabbcc")
+
+    def test_eight_digit_drops_alpha(self):
+        self.assertEqual(vox.normalize_hex("#0f0f0f00"), "#0f0f0f")
+
+    def test_hash_is_optional(self):
+        self.assertEqual(vox.normalize_hex("0f0f0f"), "#0f0f0f")
+
+    def test_five_and_seven_digit_are_rejected(self):
+        self.assertIsNone(vox.normalize_hex("#12345"))
+        self.assertIsNone(vox.normalize_hex("#1234567"))
+
+    def test_non_hex_is_rejected(self):
+        for value in ("", "nothex", "rgba(1,2,3,4)", "#gggggg", None, 42):
+            self.assertIsNone(vox.normalize_hex(value), repr(value))
+
+
+class TestColourLengthAgreement(EnvCase):
+    """BUG (#6): parse_colors accepted 3-8 digit hex while style() dropped values
+    shorter than 6 chars and truncated longer ones (discarding alpha), so a colour
+    the parser reported as present could render unthemed. The two must agree.
+    """
+
+    def test_parser_accepts_exactly_what_style_renders(self):
+        for value in ("#abc", "#abcd", "#0f0f0f00", "#123456", "#0f0", "#12345",
+                      "#1234567", "nope", ""):
+            accepted = bool(vox.parse_colors('k = "%s"\n' % value))
+            rendered = "\033[38;2;" in vox.style("x", value, True)
+            self.assertEqual(accepted, rendered, "disagreement on %r" % value)
+
+    def test_short_hex_is_stored_as_six_digits(self):
+        self.assertEqual(
+            vox.parse_colors('a = "#abc"\nb = "#abcd"\nc = "#0f0f0f00"\n'),
+            {"a": "#aabbcc", "b": "#aabbcc", "c": "#0f0f0f"})
+
+    def test_three_digit_hex_renders_after_expansion(self):
+        colors = vox.parse_colors('green = "#0f0"\n')
+        self.assertEqual(colors, {"green": "#00ff00"})
+        self.assertEqual(vox.style("x", colors["green"], True),
+                         "\033[38;2;0;255;0mx\033[0m")
 
 
 class TestLoadTheme(EnvCase):
@@ -226,8 +276,18 @@ class TestPresentation(EnvCase):
     def test_style_without_colour(self):
         self.assertEqual(vox.style("hi", None, True), "hi")
 
-    def test_style_short_hex_is_passthrough(self):
-        self.assertEqual(vox.style("hi", "#abc", True), "hi")
+    def test_style_short_hex_is_expanded(self):
+        # #abc is a valid 3-digit colour: it must expand to #aabbcc and render,
+        # not be dropped (BUG #6).
+        self.assertEqual(vox.style("hi", "#abc", True),
+                         "\033[38;2;170;187;204mhi\033[0m")
+
+    def test_style_eight_digit_hex_drops_alpha(self):
+        self.assertEqual(vox.style("hi", "#0f0f0f00", True),
+                         vox.style("hi", "#0f0f0f", True))
+
+    def test_style_rejects_a_non_colour(self):
+        self.assertEqual(vox.style("hi", "#12345", True), "hi")
 
     def test_state_color(self):
         colors = {"red": "#ff0000", "green": "#00ff00", "muted": "#888888"}

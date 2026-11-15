@@ -116,8 +116,37 @@ def default_config_path() -> pathlib.Path:
 
 # ── theme (never baked in) ────────────────────────────────────────────────────
 
+_HEX_RE = re.compile(r"^[0-9A-Fa-f]+$")
+
+
+def normalize_hex(value):
+    """Return canonical ``'#rrggbb'`` for ``#rgb``/``#rgba``/``#rrggbb``/``#rrggbbaa``.
+
+    Short forms expand (``rgb`` -> ``rrggbb``) and any alpha channel is dropped, so
+    the palette the parser accepts is exactly what :func:`style` can render — a
+    colour the parser reports as present can never render unthemed. Returns None for
+    anything that is not a valid hex colour (including 5- or 7-digit lengths).
+    """
+    if not isinstance(value, str):
+        return None
+    h = value.strip()
+    if h.startswith("#"):
+        h = h[1:]
+    if not _HEX_RE.match(h):
+        return None
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    elif len(h) == 4:
+        h = "".join(c * 2 for c in h[:3])   # #rgba -> drop alpha
+    elif len(h) in (6, 8):
+        h = h[:6]                            # #rrggbb / #rrggbbaa -> drop alpha
+    else:
+        return None
+    return "#" + h
+
+
 def parse_colors(text: str) -> dict:
-    """``{key: '#hex'}`` from a colors.toml body; non-colour lines are ignored."""
+    """``{key: '#rrggbb'}`` from a colors.toml body; non-colour lines are ignored."""
     colors: dict = {}
     for line in text.splitlines():
         stripped = line.strip()
@@ -128,8 +157,9 @@ def parse_colors(text: str) -> dict:
         key, _, raw = line.partition("=")
         key = key.strip()
         val = raw.strip().strip('"').strip("'")
-        if re.fullmatch(r"#[0-9A-Fa-f]{3,8}", val):
-            colors[key] = val
+        norm = normalize_hex(val)
+        if norm is not None:
+            colors[key] = norm
     return colors
 
 
@@ -294,16 +324,18 @@ def cmd_reload(args) -> int:
 # ── presentation ──────────────────────────────────────────────────────────────
 
 def style(text: str, hexcolor, enabled: bool) -> str:
-    """Wrap `text` in a truecolour ANSI escape for `hexcolor` (no-op when disabled)."""
+    """Wrap `text` in a truecolour ANSI escape for `hexcolor` (no-op when disabled).
+
+    The colour is normalised first, so a short ``#rgb``/``#rgba`` expands and an
+    alpha channel is dropped — the same values :func:`parse_colors` accepts.
+    """
     if not enabled or not hexcolor:
         return text
-    hexcolor = hexcolor.lstrip("#")
-    if len(hexcolor) < 6:
+    norm = normalize_hex(hexcolor)
+    if norm is None:
         return text
-    try:
-        r, g, b = int(hexcolor[0:2], 16), int(hexcolor[2:4], 16), int(hexcolor[4:6], 16)
-    except ValueError:
-        return text
+    h = norm[1:]
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return "\033[38;2;%d;%d;%dm%s\033[0m" % (r, g, b, text)
 
 
